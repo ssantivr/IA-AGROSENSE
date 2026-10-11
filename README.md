@@ -139,7 +139,11 @@ guarda y hay que pedirla de nuevo, o subir ese tiempo.
 `render.yaml` describe el servicio: en Render, **New → Blueprint** y elige este repositorio. Render
 construye el `Dockerfile`, comprueba `/health` y genera un `AI_SERVICE_TOKEN`. Después, en el servicio del
 backend, define `AI_SERVICE_URL` con la dirección que Render le dé a este y `AI_SERVICE_TOKEN` con el
-valor generado. Este archivo no se ha probado en Render todavía.
+valor generado.
+
+El servicio de AgroSense está en `https://ia-agrosense.onrender.com` (plan gratuito: se duerme tras un
+rato sin uso). Se creó con la API de Render y la misma configuración que describe `render.yaml`; el
+archivo en sí, como blueprint, no se ha probado.
 
 ## Pruebas
 
