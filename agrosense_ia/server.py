@@ -1,11 +1,15 @@
 """HTTP front of the irrigation model, on the standard library alone.
 
+    GET  /                     -> what this service is
     GET  /health               -> {"status": "UP"}
     POST /predict/irrigation   -> the prediction (see README.md)
+
+With AI_SERVICE_TOKEN set, predictions are only given to callers that send it as a bearer token.
 
 Every error answers JSON with a ``message`` written for the reader, like the AgroSense backend does.
 """
 
+import hmac
 import json
 import logging
 import math
@@ -19,6 +23,9 @@ log = logging.getLogger("agrosense_ia")
 
 PREDICT_PATH = "/predict/irrigation"
 HEALTH_PATH = "/health"
+ROOT_PATH = "/"
+# Paths that only answer GET (and HEAD, which monitors use).
+READ_ONLY_PATHS = (ROOT_PATH, HEALTH_PATH)
 # A prediction request is a handful of numbers; anything larger is not one.
 MAX_BODY_BYTES = 16 * 1024
 # A client that stops sending is dropped instead of holding a thread.
@@ -96,18 +103,36 @@ class Handler(BaseHTTPRequestHandler):
         path = self.path.split("?", 1)[0]
         if path == HEALTH_PATH:
             self._send(HTTPStatus.OK, {"status": "UP"})
+        elif path == ROOT_PATH:
+            self._send(HTTPStatus.OK, {"service": "AgroSense IA", "status": "UP", "health": HEALTH_PATH,
+                                       "predict": f"POST {PREDICT_PATH}"})
         elif path == PREDICT_PATH:
             self._send(HTTPStatus.METHOD_NOT_ALLOWED, {"message": "Usa POST en esta ruta."}, allow="POST")
         else:
             self._send(HTTPStatus.NOT_FOUND, {"message": "No se encontró el recurso solicitado."})
 
+    def do_HEAD(self) -> None:
+        # The same answer as GET without its body, which is all an uptime monitor wants.
+        self.head_only = True
+        try:
+            self.do_GET()
+        finally:
+            # One handler serves every request of a kept-alive connection.
+            self.head_only = False
+
     def do_POST(self) -> None:
         path = self.path.split("?", 1)[0]
-        if path == HEALTH_PATH:
-            self._send(HTTPStatus.METHOD_NOT_ALLOWED, {"message": "Usa GET en esta ruta."}, allow="GET")
+        if path in READ_ONLY_PATHS:
+            self._send(HTTPStatus.METHOD_NOT_ALLOWED, {"message": "Usa GET en esta ruta."}, allow="GET, HEAD")
             return
         if path != PREDICT_PATH:
             self._send(HTTPStatus.NOT_FOUND, {"message": "No se encontró el recurso solicitado."})
+            return
+        if not self._authorized():
+            # The body is left unread, so the connection cannot be used again.
+            self.close_connection = True
+            self._send(HTTPStatus.UNAUTHORIZED, {"message": "Falta el token del servicio o no es válido."},
+                       authenticate="Bearer")
             return
         try:
             self._send(HTTPStatus.OK, answer_prediction(self._read_json()))
@@ -118,6 +143,16 @@ class Handler(BaseHTTPRequestHandler):
             log.exception("Unexpected error answering a prediction")
             self._send(HTTPStatus.INTERNAL_SERVER_ERROR,
                        {"message": "Ocurrió un error inesperado. Inténtalo de nuevo."})
+
+    def _authorized(self) -> bool:
+        """Whether the caller may ask for predictions: always when no token is configured."""
+        expected = self.server.token
+        if not expected:
+            return True
+        scheme, _, sent = self.headers.get("Authorization", "").partition(" ")
+        # compare_digest takes the same time whatever the guess, so the token cannot be found bit by bit.
+        return scheme.lower() == "bearer" and hmac.compare_digest(sent.strip().encode("utf-8"),
+                                                                  expected.encode("utf-8"))
 
     def _read_json(self) -> object:
         content_type = self.headers.get("Content-Type", "").split(";", 1)[0].strip().lower()
@@ -138,7 +173,8 @@ class Handler(BaseHTTPRequestHandler):
         except (ValueError, UnicodeDecodeError):
             raise BadRequest("El cuerpo no es JSON válido.") from None
 
-    def _send(self, status: HTTPStatus, body: dict, allow: str | None = None) -> None:
+    def _send(self, status: HTTPStatus, body: dict, allow: str | None = None,
+              authenticate: str | None = None) -> None:
         payload = json.dumps(body, ensure_ascii=False).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
@@ -147,8 +183,11 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("X-Content-Type-Options", "nosniff")
         if allow:
             self.send_header("Allow", allow)
+        if authenticate:
+            self.send_header("WWW-Authenticate", authenticate)
         self.end_headers()
-        self.wfile.write(payload)
+        if not getattr(self, "head_only", False):
+            self.wfile.write(payload)
 
     def log_message(self, format: str, *args: object) -> None:
         # Method, path and status only: readings and recommendations are not written to the log.
@@ -160,10 +199,14 @@ def _reject_constant(name: str) -> float:
     raise ValueError(name)
 
 
-def create_server(host: str = "127.0.0.1", port: int = 0) -> ThreadingHTTPServer:
-    """A server ready to ``serve_forever``; port 0 lets the system pick a free one (used by the tests)."""
+def create_server(host: str = "127.0.0.1", port: int = 0, token: str = "") -> ThreadingHTTPServer:
+    """A server ready to ``serve_forever``; port 0 lets the system pick a free one (used by the tests).
+
+    With a ``token``, predictions are only given to callers that send it as ``Authorization: Bearer``.
+    """
     server = ThreadingHTTPServer((host, port), Handler)
     server.daemon_threads = True
+    server.token = token.strip()
     return server
 
 
@@ -172,8 +215,9 @@ def main() -> None:
                         format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     host = os.environ.get("HOST", "0.0.0.0")
     port = int(os.environ.get("PORT", "8000"))
-    server = create_server(host, port)
-    log.info("AgroSense IA listening on %s:%s", host, port)
+    server = create_server(host, port, os.environ.get("AI_SERVICE_TOKEN", ""))
+    log.info("AgroSense IA listening on %s:%s (%s)", host, port,
+             "predictions need the service token" if server.token else "no service token: open to any caller")
     try:
         server.serve_forever()
     except KeyboardInterrupt:
