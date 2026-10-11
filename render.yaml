@@ -1,0 +1,12 @@
+# Render blueprint: New > Blueprint > this repository creates the service from the Dockerfile.
+# Render generates AI_SERVICE_TOKEN; copy its value into the backend's AI_SERVICE_TOKEN variable and put
+# the address of this service in the backend's AI_SERVICE_URL.
+services:
+  - type: web
+    name: ia-agrosense
+    runtime: docker
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      - key: AI_SERVICE_TOKEN
+        generateValue: true
