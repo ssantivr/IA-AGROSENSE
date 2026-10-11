@@ -29,7 +29,8 @@ class ServerTests(unittest.TestCase):
             sent.update(headers or {})
             connection.request(method, path, body=payload, headers=sent)
             response = connection.getresponse()
-            return response, json.loads(response.read().decode("utf-8"))
+            raw = response.read()
+            return response, json.loads(raw.decode("utf-8")) if raw else None
         finally:
             connection.close()
 
@@ -107,8 +108,37 @@ class ServerTests(unittest.TestCase):
         self.assertEqual(response.status, 413)
         self.assertIn("demasiado grande", answer["message"])
 
+    def test_the_bare_address_says_what_the_service_is(self):
+        response, body = self.call("GET", "/")
+
+        self.assertEqual(response.status, 200)
+        self.assertEqual(body["service"], "AgroSense IA")
+        self.assertEqual(body["health"], "/health")
+
+    def test_head_answers_like_get_without_a_body(self):
+        for path in ("/", "/health"):
+            with self.subTest(path=path):
+                response, body = self.call("HEAD", path)
+                self.assertEqual(response.status, 200)
+                self.assertIsNone(body)
+                self.assertGreater(int(response.getheader("Content-Length")), 0)
+
+    def test_a_connection_that_is_reused_keeps_answering_with_bodies_after_a_head(self):
+        connection = http.client.HTTPConnection("127.0.0.1", self.server.server_address[1], timeout=5)
+        try:
+            connection.request("HEAD", "/health")
+            connection.getresponse().read()
+            connection.request("GET", "/health")
+            self.assertEqual(json.loads(connection.getresponse().read()), {"status": "UP"})
+        finally:
+            connection.close()
+
+    def test_without_a_configured_token_nobody_is_asked_for_one(self):
+        self.assertEqual(self.call("POST", "/predict/irrigation", READING)[0].status, 200)
+
     def test_unknown_paths_and_wrong_methods(self):
-        self.assertEqual(self.call("GET", "/")[0].status, 404)
+        self.assertEqual(self.call("GET", "/nothing")[0].status, 404)
+        self.assertEqual(self.call("POST", "/", {})[0].status, 405)
         self.assertEqual(self.call("POST", "/predict/pests", READING)[0].status, 404)
         wrong_method, _ = self.call("GET", "/predict/irrigation")
         self.assertEqual(wrong_method.status, 405)
@@ -129,6 +159,45 @@ class ServerTests(unittest.TestCase):
 
         self.assertEqual(len(results), 20)
         self.assertEqual(sum(1 for result in results if result["irrigate"]), 8)
+
+
+class ServiceTokenTests(ServerTests):
+    """With a token configured: the same service, and predictions only for callers that send it."""
+
+    TOKEN = "un-secreto-de-prueba"
+
+    @classmethod
+    def setUpClass(cls):
+        cls.server = create_server(token=f"  {cls.TOKEN}  ")
+        threading.Thread(target=cls.server.serve_forever, daemon=True).start()
+
+    def call(self, method, path, body=None, headers=None, raw=None):
+        # Everything the open service is tested for must also hold for a caller that has the token.
+        sent = {"Authorization": f"Bearer {self.TOKEN}"}
+        sent.update(headers or {})
+        return super().call(method, path, body, sent, raw)
+
+    def test_without_a_configured_token_nobody_is_asked_for_one(self):
+        self.skipTest("This server has a token")
+
+    def test_predictions_are_refused_without_the_token(self):
+        for header in ("", "Bearer otro-secreto", f"Basic {self.TOKEN}", self.TOKEN, "Bearer", f"Bearer {self.TOKEN}x"):
+            with self.subTest(header=header):
+                response, body = self.call("POST", "/predict/irrigation", READING, headers={"Authorization": header})
+                self.assertEqual(response.status, 401)
+                self.assertEqual(response.getheader("WWW-Authenticate"), "Bearer")
+                self.assertIn("token", body["message"])
+                self.assertNotIn(self.TOKEN, body["message"])
+
+    def test_the_scheme_is_not_case_sensitive(self):
+        response, _ = self.call("POST", "/predict/irrigation", READING,
+                                headers={"Authorization": f"bearer {self.TOKEN}"})
+        self.assertEqual(response.status, 200)
+
+    def test_health_and_the_bare_address_stay_open(self):
+        for path in ("/health", "/"):
+            with self.subTest(path=path):
+                self.assertEqual(self.call("GET", path, headers={"Authorization": ""})[0].status, 200)
 
 
 if __name__ == "__main__":
