@@ -33,9 +33,10 @@ El asistente conversacional (texto y voz, con Google Gemini) no está aquí: viv
 
 ## Contrato
 
-### `GET /health`
+### `GET /` y `GET /health`
 
-`200 {"status": "UP"}`
+`GET /health` responde `200 {"status": "UP"}` y `GET /` dice qué servicio es. Las dos son públicas y
+también responden a `HEAD`, que es lo que usan los monitores.
 
 ### `POST /predict/irrigation`
 
@@ -84,6 +85,7 @@ Errores, siempre como `{"message": "..."}`:
 | Código | Cuándo |
 |---|---|
 | 400 | Falta un campo, no es un número, está fuera de rango o el cuerpo no es JSON |
+| 401 | El servicio tiene `AI_SERVICE_TOKEN` y la petición no trae ese token |
 | 404 | Ruta desconocida |
 | 405 | Método equivocado (la cabecera `Allow` dice cuál usar) |
 | 411 | Falta `Content-Length` |
@@ -101,9 +103,12 @@ python -m agrosense_ia          # escucha en http://localhost:8000
 | `PORT` | Puerto (por defecto 8000) |
 | `HOST` | Dirección en la que escucha (por defecto `0.0.0.0`) |
 | `LOG_LEVEL` | Nivel del registro (por defecto `INFO`) |
+| `AI_SERVICE_TOKEN` | Secreto que debe traer quien pida una predicción. Sin valor por defecto; sin él el servicio responde a cualquiera |
 
-No usa llaves ni credenciales. El registro anota método, ruta y código de cada petición, nunca las
-lecturas ni las recomendaciones.
+Con `AI_SERVICE_TOKEN` definido, `POST /predict/irrigation` exige la cabecera
+`Authorization: Bearer <token>` y responde 401 sin ella. Úsalo siempre que el servicio quede accesible
+desde internet. El token no se escribe en ningún archivo: llega por el entorno. El registro anota método,
+ruta y código de cada petición, nunca las lecturas, las recomendaciones ni el token.
 
 Con Docker:
 
@@ -118,9 +123,23 @@ En el backend, define `AI_SERVICE_URL` con la dirección de este servicio (por e
 `http://localhost:8000` en local). `AI_IRRIGATION_PATH` ya vale `/predict/irrigation` por defecto. Sin
 `AI_SERVICE_URL` el backend no pide predicciones.
 
-El servicio no pide autenticación y no guarda ni lee datos: solo calcula con los números que recibe. El
-único que necesita llegar a él es el backend, así que publícalo en una red privada cuando el alojamiento
-lo permita.
+Si el servicio tiene `AI_SERVICE_TOKEN`, define la misma variable con el mismo valor en el backend: lo
+envía en cada llamada.
+
+El backend manda las últimas lecturas del cultivo y sus propios límites de humedad y pH, de modo que la
+recomendación se refiere a ese cultivo y no a uno promedio. El servicio no guarda ni lee datos: solo
+calcula con los números que recibe.
+
+El backend espera la respuesta 5 segundos (`AI_SERVICE_TIMEOUT_MS`). En un alojamiento gratuito que
+duerme el servicio, la primera petición tras un rato sin uso puede tardar más: esa predicción no se
+guarda y hay que pedirla de nuevo, o subir ese tiempo.
+
+## Desplegar en Render
+
+`render.yaml` describe el servicio: en Render, **New → Blueprint** y elige este repositorio. Render
+construye el `Dockerfile`, comprueba `/health` y genera un `AI_SERVICE_TOKEN`. Después, en el servicio del
+backend, define `AI_SERVICE_URL` con la dirección que Render le dé a este y `AI_SERVICE_TOKEN` con el
+valor generado. Este archivo no se ha probado en Render todavía.
 
 ## Pruebas
 
@@ -128,5 +147,7 @@ lo permita.
 python -m unittest
 ```
 
-20 pruebas: las reglas del modelo y el servicio por HTTP real (validación, errores y peticiones
-simultáneas).
+40 pruebas: las reglas del modelo y el servicio por HTTP real, con y sin token (validación, errores,
+`HEAD` y peticiones simultáneas).
+
+GitHub las ejecuta en cada push (`.github/workflows/tests.yml`).
