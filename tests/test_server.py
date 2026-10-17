@@ -164,7 +164,7 @@ class ServerTests(unittest.TestCase):
 class ServiceTokenTests(ServerTests):
     """With a token configured: the same service, and predictions only for callers that send it."""
 
-    TOKEN = "un-secreto-de-prueba"
+    TOKEN = "a-test-secret"
 
     @classmethod
     def setUpClass(cls):
@@ -181,7 +181,7 @@ class ServiceTokenTests(ServerTests):
         self.skipTest("This server has a token")
 
     def test_predictions_are_refused_without_the_token(self):
-        for header in ("", "Bearer otro-secreto", f"Basic {self.TOKEN}", self.TOKEN, "Bearer", f"Bearer {self.TOKEN}x"):
+        for header in ("", "Bearer another-secret", f"Basic {self.TOKEN}", self.TOKEN, "Bearer", f"Bearer {self.TOKEN}x"):
             with self.subTest(header=header):
                 response, body = self.call("POST", "/predict/irrigation", READING, headers={"Authorization": header})
                 self.assertEqual(response.status, 401)

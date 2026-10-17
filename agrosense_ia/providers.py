@@ -49,17 +49,17 @@ def _send(call, model: str) -> dict:
     try:
         response = call()
     except httpx.TimeoutException:
-        log.warning("El proveedor de IA no respondió a tiempo (modelo %s)", model)
+        log.warning("The AI provider did not answer in time (model %s)", model)
         raise AssistantError(504, "El asistente tardó demasiado en responder. Inténtalo de nuevo.") from None
     except httpx.HTTPError as error:
         # Connection failures; the key travels in a header and is not part of the error.
-        log.warning("No se pudo contactar al proveedor de IA: %s", type(error).__name__)
+        log.warning("Could not reach the AI provider: %s", type(error).__name__)
         raise AssistantError(504, "El asistente tardó demasiado en responder. Inténtalo de nuevo.") from None
     if response.status_code == 429:
-        log.warning("El proveedor de IA respondió 429 al modelo %s", model)
+        log.warning("The AI provider answered 429 to model %s", model)
         raise AssistantError(429, "El asistente está recibiendo muchas consultas. Inténtalo de nuevo en un minuto.")
     if response.status_code >= 300:
-        log.warning("El proveedor de IA respondió %s al modelo %s", response.status_code, model)
+        log.warning("The AI provider answered %s to model %s", response.status_code, model)
         raise AssistantError(502, "El asistente no está disponible en este momento. Inténtalo más tarde.")
     try:
         answer = response.json()
@@ -215,7 +215,7 @@ class Gemini(ChatModel):
                 heard = str(parsed.get("transcript", "")).strip()
                 return reply, heard or None
         except (ValueError, AttributeError):
-            log.warning("Gemini no devolvió el JSON pedido para un mensaje de voz")
+            log.warning("Gemini did not return the requested JSON for a voice message")
         # The model ignored the requested shape: its text is still an answer worth showing.
         return text, None
 

@@ -13,9 +13,9 @@ from agrosense_ia.providers import ASSISTANT, USER, Said
 
 from .fake_provider import FakeProvider, anthropic_reply, gemini_reply, openai_reply
 
-KEY = "llave-interna-de-prueba"
-TOKEN = "token-anterior-de-prueba"
-PROVIDER_KEY = "llave-del-proveedor"
+KEY = "test-internal-key"
+TOKEN = "test-previous-token"
+PROVIDER_KEY = "provider-key"
 FARM = "Fecha y hora actual: 2026-10-16 08:00.\nDatos de la finca del usuario: 1 cultivos, 2 sensores, 0 alertas sin atender."
 PROMPT = "Eres el asistente de AgroSense."
 

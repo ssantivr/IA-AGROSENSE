@@ -60,7 +60,7 @@ def main() -> None:
     host = os.environ.get("HOST", "0.0.0.0")
     port = int(os.environ.get("PORT", "8000"))
     model = providers.chosen(settings)
-    log.info("AgroSense IA listening on %s:%s; predictions %s; assistant %s, answered by %s", host, port,
+    log.info("AgroSense AI service listening on %s:%s; predictions %s; assistant %s, answered by %s", host, port,
              "need a service credential" if settings.guarded else "open to any caller",
              "needs X-Internal-Key" if settings.guarded else "closed until INTERNAL_API_KEY is set",
              model.name if model else "no provider (it answers 503)")
