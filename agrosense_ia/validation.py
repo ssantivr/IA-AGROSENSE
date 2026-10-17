@@ -1,5 +1,3 @@
-"""What callers send, checked field by field so every refusal names the field to fix."""
-
 import json
 import math
 
@@ -13,8 +11,6 @@ MAX_FARM_CONTEXT_LENGTH = 8000
 
 
 class BadRequest(Exception):
-    """The request cannot be answered; the message says what to fix."""
-
     def __init__(self, message: str, status: int = 400):
         super().__init__(message)
         self.status = status
@@ -28,7 +24,6 @@ def decode_json(raw: bytes) -> object:
 
 
 def _reject_constant(name: str) -> float:
-    """JSON has no NaN or Infinity; Python's parser would accept them."""
     raise ValueError(name)
 
 
@@ -38,7 +33,6 @@ def _number(body: dict, name: str, low: float, high: float, required: bool = Tru
         if required:
             raise BadRequest(f"Falta el campo '{name}'.")
         return None
-    # bool is a kind of int in Python; true and false are not measurements.
     if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
         raise BadRequest(f"El campo '{name}' debe ser un número.")
     if not low <= value <= high:
@@ -48,7 +42,6 @@ def _number(body: dict, name: str, low: float, high: float, required: bool = Tru
 
 def _range(body: dict, low_name: str, high_name: str, low: float, high: float,
            default: tuple[float, float]) -> tuple[float, float]:
-    """An optional pair of limits: both or neither, with the minimum below the maximum."""
     minimum = _number(body, low_name, low, high, required=False)
     maximum = _number(body, high_name, low, high, required=False)
     if minimum is None and maximum is None:
@@ -61,7 +54,6 @@ def _range(body: dict, low_name: str, high_name: str, low: float, high: float,
 
 
 def answer_prediction(body: object) -> dict:
-    """Validates a decoded prediction request and returns the body of the answer."""
     if not isinstance(body, dict):
         raise BadRequest("El cuerpo debe ser un objeto JSON.")
     crop_id = body.get("id_crop")
@@ -96,7 +88,6 @@ def farm_context(value: object) -> str | None:
 
 
 def chat_request(body: object) -> tuple[str, list[Said], str | None]:
-    """The question, the earlier turns and the farm's description of a ``POST /chat``."""
     if not isinstance(body, dict):
         raise BadRequest("El cuerpo debe ser un objeto JSON.")
     message = body.get("message")

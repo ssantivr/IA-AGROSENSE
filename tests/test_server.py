@@ -9,8 +9,6 @@ READING = {"id_crop": 7, "soil_moisture": 31.5, "air_temperature": 24, "ph": 6.4
 
 
 class ServerTests(unittest.TestCase):
-    """The service over real HTTP, on a free port of this machine."""
-
     @classmethod
     def setUpClass(cls):
         cls.server = create_server()
@@ -162,8 +160,6 @@ class ServerTests(unittest.TestCase):
 
 
 class ServiceTokenTests(ServerTests):
-    """With a token configured: the same service, and predictions only for callers that send it."""
-
     TOKEN = "a-test-secret"
 
     @classmethod
@@ -172,7 +168,6 @@ class ServiceTokenTests(ServerTests):
         threading.Thread(target=cls.server.serve_forever, daemon=True).start()
 
     def call(self, method, path, body=None, headers=None, raw=None):
-        # Everything the open service is tested for must also hold for a caller that has the token.
         sent = {"Authorization": f"Bearer {self.TOKEN}"}
         sent.update(headers or {})
         return super().call(method, path, body, sent, raw)

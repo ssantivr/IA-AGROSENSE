@@ -1,18 +1,3 @@
-"""The HTTP front of AgroSense's AI service.
-
-    GET  /                     -> what this service is
-    GET  /health               -> {"status": "UP"}
-    POST /predict/irrigation   -> an irrigation prediction (see README.md)
-    POST /chat                 -> the assistant's answer to a written question
-    POST /voice                -> the assistant's answer to a spoken question
-
-Only the AgroSense backend calls it. It sends ``X-Internal-Key`` (INTERNAL_API_KEY) or, while the backend
-moves to that header, the bearer token it already sent (AI_SERVICE_TOKEN). The assistant always asks for
-one of them; predictions only when one is configured, as they did before.
-
-Every error answers JSON with a ``message`` written for the reader, like the AgroSense backend does.
-"""
-
 import hmac
 import logging
 
@@ -32,14 +17,11 @@ PREDICT_PATH = "/predict/irrigation"
 HEALTH_PATH = "/health"
 CHAT_PATH = "/chat"
 VOICE_PATH = "/voice"
-# A prediction request is a handful of numbers; anything larger is not one.
 MAX_BODY_BYTES = 16 * 1024
-# A question with its twelve earlier turns and the farm's description.
 MAX_CHAT_BYTES = 128 * 1024
 MAX_AUDIO_BYTES = 3 * 1024 * 1024
 MAX_MESSAGE_LENGTH = 1000
 
-# What browsers record (WebM, Ogg, MP4) and the formats Gemini documents for audio.
 AUDIO_TYPES = {"audio/webm", "audio/ogg", "audio/wav", "audio/x-wav", "audio/mp4", "audio/mpeg", "audio/mp3",
                "audio/aac", "audio/flac"}
 
@@ -55,12 +37,10 @@ def _message(status: int, message: str, **headers: str) -> Json:
 
 
 def _same(sent: str, expected: str) -> bool:
-    # compare_digest takes the same time whatever the guess, so a secret cannot be found bit by bit.
     return bool(expected) and hmac.compare_digest(sent.strip().encode("utf-8"), expected.encode("utf-8"))
 
 
 def create_app(settings: Settings, model: providers.ChatModel | None = None, prompt: str | None = None) -> FastAPI:
-    """The service; ``model`` defaults to the provider the settings choose."""
     assistant = Assistant(model if model is not None else providers.chosen(settings),
                           prompt if prompt is not None else load_prompt())
     app = FastAPI(title="AgroSense IA", docs_url=None, redoc_url=None, openapi_url=None)
@@ -104,7 +84,6 @@ def create_app(settings: Settings, model: providers.ChatModel | None = None, pro
 
     @app.exception_handler(BadRequest)
     async def bad_request(request: Request, error: BadRequest):
-        # A body left unread makes the connection unusable for another request.
         headers = {"Connection": "close"} if error.status == 413 else {}
         return _message(error.status, str(error), **headers)
 
@@ -114,7 +93,6 @@ def create_app(settings: Settings, model: providers.ChatModel | None = None, pro
 
     @app.exception_handler(Exception)
     async def unexpected(request: Request, error: Exception):
-        # The details stay in the log; the caller only learns that it was not its fault.
         log.error("Unexpected error answering %s %s", request.method, request.url.path, exc_info=error)
         return _message(500, "Ocurrió un error inesperado. Inténtalo de nuevo.")
 
@@ -147,8 +125,6 @@ def create_app(settings: Settings, model: providers.ChatModel | None = None, pro
 
     @app.post(VOICE_PATH)
     async def voice(request: Request):
-        """Multipart form with ``audio`` (the recording), ``transcript`` (its text), or both, and
-        ``farm_context``. With a transcript the audio is not sent anywhere."""
         if not authorized(request):
             return refused()
         if int(request.headers.get("Content-Length", "0") or 0) > MAX_AUDIO_BYTES + MAX_CHAT_BYTES:

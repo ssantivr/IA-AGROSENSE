@@ -1,10 +1,3 @@
-"""The language models the assistant can use, each reached over its own HTTP API.
-
-Every failure becomes an ``AssistantError`` with a status and a message the end user can read, in the same
-terms the AgroSense backend uses: 429 out of allowance, 502 broken, 504 too slow, 422 refused. A provider's
-own error text may quote the request or the key, so only its status code is logged.
-"""
-
 import base64
 import json
 import logging
@@ -17,10 +10,8 @@ log = logging.getLogger("agrosense_ia.providers")
 USER = "user"
 ASSISTANT = "assistant"
 
-# The version of the Anthropic API the request and answer shapes below follow.
 ANTHROPIC_VERSION = "2023-06-01"
 
-# The file name tells a transcription API how to read the recording; the type alone is not enough for it.
 EXTENSIONS = {"audio/webm": "webm", "audio/ogg": "ogg", "audio/wav": "wav", "audio/x-wav": "wav",
               "audio/mp4": "mp4", "audio/mpeg": "mp3", "audio/mp3": "mp3", "audio/flac": "flac", "audio/aac": "aac"}
 
@@ -30,8 +21,6 @@ CANNOT_LISTEN = "Ahora no puedo escuchar mensajes de voz. Escribe tu pregunta y 
 
 
 class AssistantError(Exception):
-    """The question could not be answered; ``status`` says why and the message is for the end user."""
-
     def __init__(self, status: int, message: str):
         super().__init__(message)
         self.status = status
@@ -39,20 +28,17 @@ class AssistantError(Exception):
 
 @dataclass(frozen=True)
 class Said:
-    """One side's part of a conversation; ``role`` is ``user`` or ``assistant``."""
     role: str
     text: str
 
 
 def _send(call, model: str) -> dict:
-    """Runs one HTTP call and turns each way it can fail into an ``AssistantError``."""
     try:
         response = call()
     except httpx.TimeoutException:
         log.warning("The AI provider did not answer in time (model %s)", model)
         raise AssistantError(504, "El asistente tardó demasiado en responder. Inténtalo de nuevo.") from None
     except httpx.HTTPError as error:
-        # Connection failures; the key travels in a header and is not part of the error.
         log.warning("Could not reach the AI provider: %s", type(error).__name__)
         raise AssistantError(504, "El asistente tardó demasiado en responder. Inténtalo de nuevo.") from None
     if response.status_code == 429:
@@ -71,8 +57,6 @@ def _send(call, model: str) -> dict:
 
 
 class ChatModel:
-    """A model that answers written questions; ``listens`` says whether it can also transcribe recordings."""
-
     name = "model"
 
     def chat(self, instructions: str, conversation: list[Said]) -> str:
@@ -86,8 +70,6 @@ class ChatModel:
 
 
 class OpenAiCompatible(ChatModel):
-    """Any provider that speaks the API OpenAI defined (Groq, OpenRouter, Mistral, OpenAI...)."""
-
     name = "openai-compatible"
 
     def __init__(self, api_key: str, base_url: str, models: tuple[str, ...], transcription_model: str,
@@ -112,8 +94,6 @@ class OpenAiCompatible(ChatModel):
             try:
                 return self._complete(model, messages)
             except AssistantError as failure:
-                # Out of allowance or broken for this model: the next one may still answer. A refusal is
-                # about the question and a provider that does not respond will not for the next model either.
                 if failure.status not in (429, 502):
                     raise
                 last_failure = failure
@@ -146,8 +126,6 @@ class OpenAiCompatible(ChatModel):
 
 
 class Anthropic(ChatModel):
-    """Claude, through the Messages API. It does not transcribe recordings."""
-
     name = "anthropic"
 
     def __init__(self, api_key: str, base_url: str, model: str, effort: str, timeout_s: float,
@@ -155,7 +133,6 @@ class Anthropic(ChatModel):
         if not model:
             raise ValueError("ANTHROPIC_MODEL must name a model")
         self.url = f"{base_url.rstrip('/')}/v1/messages"
-        # In headers, never in the address, so the key does not reach a log of requested URLs.
         self.headers = {"x-api-key": api_key, "anthropic-version": ANTHROPIC_VERSION}
         self.model = model
         self.effort = effort
@@ -165,14 +142,12 @@ class Anthropic(ChatModel):
     def chat(self, instructions: str, conversation: list[Said]) -> str:
         body = {"model": self.model, "max_tokens": self.max_output_tokens, "system": instructions,
                 "messages": [{"role": turn.role, "content": turn.text} for turn in conversation]}
-        # Current models refuse sampling settings such as temperature; how much they think is the lever.
         if self.effort:
             body["output_config"] = {"effort": self.effort}
         answer = _send(lambda: httpx.post(self.url, json=body, headers=self.headers, timeout=self.timeout_s),
                        self.model)
         if answer.get("stop_reason") == "refusal":
             raise AssistantError(422, REFUSED)
-        # Only the text blocks are the answer; thinking blocks, when the model sends them, are not shown.
         reply = "".join(block.get("text", "") for block in answer.get("content") or []
                         if isinstance(block, dict) and block.get("type") == "text").strip()
         if not reply:
@@ -181,8 +156,6 @@ class Anthropic(ChatModel):
 
 
 class Gemini(ChatModel):
-    """Google Gemini. It also listens: a recording is transcribed and answered in the same call."""
-
     name = "gemini"
 
     VOICE_INSTRUCTION = "Transcribe el audio en español y responde a lo que pregunta."
@@ -198,13 +171,11 @@ class Gemini(ChatModel):
         return True
 
     def chat(self, instructions: str, conversation: list[Said]) -> str:
-        # Gemini calls the assistant's side "model".
         contents = [{"role": "user" if turn.role == USER else "model", "parts": [{"text": turn.text}]}
                     for turn in conversation]
         return self._text(self._generate(instructions, contents, voice=False))
 
     def listen_and_answer(self, instructions: str, audio: bytes, mime_type: str) -> tuple[str, str | None]:
-        """The answer to a recording and what was understood from it, in a single call."""
         audio_part = {"inline_data": {"mime_type": mime_type, "data": base64.b64encode(audio).decode("ascii")}}
         contents = [{"role": "user", "parts": [audio_part, {"text": self.VOICE_INSTRUCTION}]}]
         text = self._text(self._generate(instructions, contents, voice=True))
@@ -216,7 +187,6 @@ class Gemini(ChatModel):
                 return reply, heard or None
         except (ValueError, AttributeError):
             log.warning("Gemini did not return the requested JSON for a voice message")
-        # The model ignored the requested shape: its text is still an answer worth showing.
         return text, None
 
     def _generate(self, instructions: str, contents: list[dict], voice: bool) -> dict:
@@ -244,7 +214,6 @@ class Gemini(ChatModel):
 
 
 def chosen(settings) -> ChatModel | None:
-    """The provider that answers, by priority: OpenAI-compatible, Claude, Gemini; ``None`` without any key."""
     timeout_s = settings.timeout_ms / 1000
     if settings.chat_api_key:
         return OpenAiCompatible(settings.chat_api_key, settings.chat_base_url, settings.chat_models,

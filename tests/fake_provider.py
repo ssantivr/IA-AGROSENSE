@@ -1,5 +1,3 @@
-"""A provider's API played by a local HTTP server: it records each request and answers what it is told to."""
-
 import json
 import threading
 import time
@@ -9,7 +7,6 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 class FakeProvider:
     def __init__(self):
         self.requests: list[dict] = []
-        # Each answer is (status, body as dict, seconds to wait first); the last one repeats.
         self.answers: list[tuple[int, dict, float]] = [(200, {}, 0)]
         provider = self
 
@@ -34,7 +31,7 @@ class FakeProvider:
                     self.end_headers()
                     self.wfile.write(payload)
                 except OSError:
-                    pass  # the client gave up waiting
+                    pass
 
             def log_message(self, format, *args):
                 pass
@@ -45,7 +42,6 @@ class FakeProvider:
         threading.Thread(target=self.server.serve_forever, daemon=True).start()
 
     def answer(self, *answers):
-        """Answers in this order: each is ``(status, body)`` or ``(status, body, delay_seconds)``."""
         self.answers = [answer if len(answer) == 3 else (*answer, 0) for answer in answers]
 
     def close(self):

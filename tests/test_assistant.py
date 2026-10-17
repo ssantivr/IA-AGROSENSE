@@ -1,5 +1,3 @@
-"""The assistant's routes, with every provider played by a local HTTP server."""
-
 import logging
 import socket
 
@@ -45,8 +43,6 @@ def closed_port() -> int:
         probe.bind(("127.0.0.1", 0))
         return probe.getsockname()[1]
 
-
-# --- Who may call -----------------------------------------------------------------------------------------
 
 def test_the_assistant_answers_only_callers_with_the_internal_key(provider):
     provider.answer((200, openai_reply("Sí, riega.")))
@@ -97,8 +93,6 @@ def test_secrets_are_never_logged(provider, caplog):
     for secret in (KEY, TOKEN, PROVIDER_KEY, "adivinada"):
         assert secret not in caplog.text
 
-
-# --- OpenAI-compatible providers -------------------------------------------------------------------------
 
 def test_an_openai_compatible_provider_gets_the_prompt_the_farm_and_the_question(provider):
     provider.answer((200, openai_reply("Sí, el café está en 31 %.")))
@@ -176,8 +170,6 @@ def test_a_filtered_answer_is_a_refusal(provider):
     assert response.status_code == 422
 
 
-# --- Claude ------------------------------------------------------------------------------------------------
-
 def test_claude_gets_its_headers_and_the_instructions_as_system(provider):
     provider.answer((200, anthropic_reply("Riega 20 minutos.")))
     client = client_for(anthropic_api_key=PROVIDER_KEY, anthropic_base_url=provider.url, anthropic_model="claude-x")
@@ -206,8 +198,6 @@ def test_claude_s_refusal_and_allowance(provider):
     assert ask(client).status_code == 429
 
 
-# --- Gemini ------------------------------------------------------------------------------------------------
-
 def test_gemini_gets_its_key_in_a_header_and_the_model_in_the_path(provider):
     provider.answer((200, gemini_reply("Todo bien.")))
     client = client_for(gemini_api_key=PROVIDER_KEY, gemini_base_url=provider.url, gemini_model="gemini-x")
@@ -221,8 +211,6 @@ def test_gemini_gets_its_key_in_a_header_and_the_model_in_the_path(provider):
     assert PROVIDER_KEY not in sent["path"]
     assert sent["json"]["system_instruction"]["parts"][0]["text"] == f"{PROMPT}\n\n{FARM}"
 
-
-# --- Which provider answers --------------------------------------------------------------------------------
 
 def test_providers_are_chosen_by_priority():
     every = {"chat_api_key": "a", "anthropic_api_key": "b", "gemini_api_key": "c"}
@@ -267,8 +255,6 @@ def test_settings_come_from_the_environment():
     assert from_environment({}).timeout_ms == 20000
 
 
-# --- What is asked -----------------------------------------------------------------------------------------
-
 @pytest.mark.parametrize("body, expected", [
     ({"message": "  "}, "Escribe tu pregunta"),
     ({"message": "x" * 1001}, "1000"),
@@ -289,8 +275,6 @@ def test_the_conversation_starts_with_the_user_and_alternates():
     assert conversation(history, "d") == [Said(USER, "a\nb"), Said(ASSISTANT, "c"), Said(USER, "d")]
     assert MAX_HISTORY_SENT == 8
 
-
-# --- Voice -------------------------------------------------------------------------------------------------
 
 def speak(client, files=None, data=None, headers=None):
     sent = {"X-Internal-Key": KEY}

@@ -1,30 +1,19 @@
-"""The irrigation model: agronomic rules over the latest soil moisture, air temperature and pH.
-
-It is a rule-based model, not a trained one. It needs no data set and every recommendation can be traced
-to the rule that produced it. ``confidence`` says how far the reading is from the point where the
-decision would change; it is not a statistical probability.
-"""
-
 from dataclasses import dataclass, field
 
 MODEL_NAME = "agrosense-riego-reglas-1.0"
 
-# The ranges the backend gives a crop that was registered without its own (see its Crop entity).
 DEFAULT_HUMIDITY_RANGE = (40.0, 80.0)
 DEFAULT_PH_RANGE = (5.5, 7.0)
 
-# Above this air temperature water evaporates fast; below the other one the plant takes up little.
 HOT_C = 30.0
 COLD_C = 12.0
 FROST_RISK_C = 2.0
 
 MIN_MINUTES = 10
 MAX_MINUTES = 90
-# Minutes of irrigation per point of soil moisture missing to reach the middle of the crop's range.
 MINUTES_PER_POINT = 1.5
 PREVENTIVE_MINUTES = 10
 
-# A reading this many points away from the limit that decides counts as a clear case.
 CLEAR_MARGIN_POINTS = 15.0
 MIN_CONFIDENCE = 0.55
 MAX_CONFIDENCE = 0.95
@@ -43,13 +32,6 @@ class Prediction:
 def predict_irrigation(soil_moisture: float, air_temperature: float | None = None, ph: float | None = None,
                        humidity_range: tuple[float, float] = DEFAULT_HUMIDITY_RANGE,
                        ph_range: tuple[float, float] = DEFAULT_PH_RANGE) -> Prediction:
-    """Whether to irrigate now, for how long, and why.
-
-    ``soil_moisture`` is a percentage, ``air_temperature`` is in °C. The decision rests on the soil
-    moisture; a crop without a temperature or a pH reading gets the same decision without the
-    adjustments those would bring, never one based on an assumed value. The ranges are the crop's own
-    limits; both must have their minimum below their maximum.
-    """
     humidity_min, humidity_max = humidity_range
     ph_min, ph_max = ph_range
     if humidity_min >= humidity_max or ph_min >= ph_max:
@@ -120,5 +102,4 @@ def predict_irrigation(soil_moisture: float, air_temperature: float | None = Non
 
 
 def _number(value: float) -> str:
-    """64.0 reads as 64 and 64.74 stays as it is."""
     return f"{value:.2f}".rstrip("0").rstrip(".")
