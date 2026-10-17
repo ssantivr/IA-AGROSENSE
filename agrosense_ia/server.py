@@ -54,6 +54,8 @@ def create_server(host: str = "127.0.0.1", port: int = 0, token: str = "", setti
 def main() -> None:
     logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO").upper(),
                         format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    # httpx logs every provider URL it calls; keys travel in headers, but the providers' paths are noise.
+    logging.getLogger("httpx").setLevel(logging.WARNING)
     settings = from_environment()
     host = os.environ.get("HOST", "0.0.0.0")
     port = int(os.environ.get("PORT", "8000"))
