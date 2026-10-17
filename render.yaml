@@ -1,6 +1,7 @@
 # Render blueprint: New > Blueprint > this repository creates the service from the Dockerfile.
-# Render generates AI_SERVICE_TOKEN; copy its value into the backend's AI_SERVICE_TOKEN variable and put
-# the address of this service in the backend's AI_SERVICE_URL.
+# Render generates INTERNAL_API_KEY and AI_SERVICE_TOKEN; copy them into the backend's AI_SERVICE_KEY and
+# AI_SERVICE_TOKEN, and put the address of this service in the backend's AI_SERVICE_URL.
+# The provider keys are not generated: set the one you use by hand (sync: false keeps them out of this file).
 services:
   - type: web
     name: ia-agrosense
@@ -8,5 +9,17 @@ services:
     plan: free
     healthCheckPath: /health
     envVars:
+      - key: INTERNAL_API_KEY
+        generateValue: true
       - key: AI_SERVICE_TOKEN
         generateValue: true
+      - key: AI_CHAT_API_KEY
+        sync: false
+      - key: AI_CHAT_MODEL
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: AI_TIMEOUT_MS
+        value: "20000"

@@ -1,4 +1,7 @@
 .git
+.github
+.venv
+.pytest_cache
 tests
 __pycache__
 *.md
