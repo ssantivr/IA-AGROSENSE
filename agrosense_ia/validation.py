@@ -9,6 +9,11 @@ MAX_HISTORY_TURNS = 12
 MAX_TURN_LENGTH = 4000
 MAX_FARM_CONTEXT_LENGTH = 8000
 
+# The measurements of a reading as the devices name them in "datos".
+READING_MEASUREMENTS = ("temperatura", "humedad_aire", "humedad_suelo")
+# The factors of the irrigation rules that need someone to act; a short preventive watering is not one.
+ALERT_FACTORS = ("humedad_baja", "humedad_alta", "riesgo_de_helada", "ph_acido", "ph_alcalino")
+
 
 class BadRequest(Exception):
     def __init__(self, message: str, status: int = 400):
@@ -75,6 +80,26 @@ def answer_prediction(body: object) -> dict:
         "model_used": prediction.model_used,
         "factors": prediction.factors,
     }
+
+
+def answer_analysis(body: object) -> dict:
+    """The irrigation rules applied to one reading in the devices' form, {"datos": {"humedad_suelo", ...}}."""
+    if not isinstance(body, dict):
+        raise BadRequest("El cuerpo debe ser un objeto JSON.")
+    datos = body.get("datos")
+    if not isinstance(datos, dict):
+        raise BadRequest("El campo 'datos' debe ser un objeto JSON con las medidas.")
+    if any(name not in READING_MEASUREMENTS for name in datos):
+        raise BadRequest(f"Medida desconocida en 'datos'. Usa: {', '.join(READING_MEASUREMENTS)}.")
+    # Checked like the others, though no rule depends on the air's humidity yet.
+    _number(datos, "humedad_aire", 0, 100, required=False)
+    prediction = predict_irrigation(
+        soil_moisture=_number(datos, "humedad_suelo", 0, 100),
+        air_temperature=_number(datos, "temperatura", -50, 80, required=False),
+        humidity_range=_range(body, "humidity_min", "humidity_max", 0, 100, DEFAULT_HUMIDITY_RANGE),
+    )
+    return {"alerta": any(factor in ALERT_FACTORS for factor in prediction.factors),
+            "recomendacion": prediction.recommendation}
 
 
 def farm_context(value: object) -> str | None:

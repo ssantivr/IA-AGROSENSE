@@ -91,6 +91,35 @@ El backend guarda `recommendation`, `confidence` y `model_used`; el resto es inf
 Valores de `factors`: `humedad_baja`, `humedad_alta`, `humedad_adecuada`, `riego_preventivo`,
 `temperatura_alta`, `temperatura_baja`, `riesgo_de_helada`, `ph_acido`, `ph_alcalino`.
 
+### `POST /analizar`
+
+Las mismas reglas, aplicadas a una lectura en la forma en que la envía la Raspberry, con una respuesta
+reducida a si hay que actuar y qué hacer. Pide la misma credencial que `/predict/irrigation`.
+
+```json
+{"deviceId": "RPI-DEMO-01", "timestamp": "2026-10-20T10:00:00Z",
+ "datos": {"temperatura": 24.5, "humedad_aire": 60, "humedad_suelo": 28}}
+```
+
+Respuesta `200`:
+
+```json
+{"alerta": true, "recomendacion": "Riega ahora durante unos 58 minutos: la humedad del suelo (28 %) está por debajo del mínimo del cultivo (40 %)."}
+```
+
+- Solo `humedad_suelo` es obligatoria (0 a 100). `temperatura` (−50 a 80 °C) ajusta la duración y avisa de
+  helada; `humedad_aire` (0 a 100) se valida pero ninguna regla la usa todavía. Otra medida en `datos` es un
+  400. `deviceId` y `timestamp` se aceptan y no se usan.
+- `humidity_min` y `humidity_max` (juntos) son el rango del cultivo; sin ellos, 40–80 %.
+- `recomendacion` es el mismo texto que daría `/predict/irrigation` con esas medidas.
+- `alerta` es `true` cuando hay que actuar: factores `humedad_baja` (regar), `humedad_alta` (revisar el
+  drenaje), `riesgo_de_helada`, `ph_acido` o `ph_alcalino`. Un riego corto preventivo por calor no es una
+  alerta. La lista está en `ALERT_FACTORS` (`agrosense_ia/validation.py`).
+- No guarda nada. Hoy el backend no llama a esta ruta: pide `/predict/irrigation` y guarda lo que responde
+  en `ai_predictions`. Está documentada en el contrato de
+  [API-AGROSENSE](https://github.com/ssantivr/API-AGROSENSE) (`openapi.json`, `operationId`
+  `analyzeReading`).
+
 ## Asistente
 
 ### `POST /chat`
@@ -224,6 +253,8 @@ python -m pytest
 
 - Las 40 de antes: las reglas del modelo y la predicción por HTTP real, con y sin token (validación,
   errores, `HEAD` y peticiones simultáneas).
+- Las de `/analizar`: que responde la misma recomendación que `/predict/irrigation`, cuándo hay alerta y
+  cuándo no, el rango del cultivo, la validación de cada medida y que pide la credencial.
 - Las del asistente, con cada proveedor representado por un servidor HTTP local: cabeceras y cuerpo de
   cada uno, prioridad entre proveedores, cadena de modelos, 429, caída, tiempo agotado, negativas, voz,
   `X-Internal-Key` y que ningún secreto llegue al registro.

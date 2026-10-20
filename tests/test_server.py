@@ -6,6 +6,12 @@ import unittest
 from agrosense_ia.server import MAX_BODY_BYTES, create_server
 
 READING = {"id_crop": 7, "soil_moisture": 31.5, "air_temperature": 24, "ph": 6.4}
+DEVICE_READING = {"deviceId": "RPI-DEMO-01", "timestamp": "2026-10-20T10:00:00Z",
+                  "datos": {"temperatura": 24, "humedad_aire": 60, "humedad_suelo": 31.5}}
+
+
+def reading_of(**datos):
+    return dict(DEVICE_READING, datos=dict(DEVICE_READING["datos"], **datos))
 
 
 class ServerTests(unittest.TestCase):
@@ -87,6 +93,59 @@ class ServerTests(unittest.TestCase):
         for body, expected in cases:
             with self.subTest(body=body):
                 response, answer = self.call("POST", "/predict/irrigation", body)
+                self.assertEqual(response.status, 400)
+                self.assertIn(expected, answer["message"])
+
+    def test_an_analysis_answers_only_the_alert_and_the_recommendation_of_the_irrigation_rules(self):
+        response, body = self.call("POST", "/analizar", DEVICE_READING)
+        _, prediction = self.call("POST", "/predict/irrigation", {"soil_moisture": 31.5, "air_temperature": 24})
+
+        self.assertEqual(response.status, 200)
+        self.assertEqual(body, {"alerta": True, "recomendacion": prediction["recommendation"]})
+        self.assertIn("Riega ahora", body["recomendacion"])
+        self.assertEqual(response.getheader("Cache-Control"), "no-store")
+
+    def test_an_alert_is_raised_only_when_someone_has_to_act(self):
+        cases = [
+            (reading_of(humedad_suelo=60), False, "No hace falta regar"),
+            (reading_of(humedad_suelo=50, temperatura=33), False, "riego corto"),
+            (reading_of(humedad_suelo=31.5), True, "Riega ahora"),
+            (reading_of(humedad_suelo=92), True, "drenaje"),
+            (reading_of(humedad_suelo=60, temperatura=1), True, "helada"),
+        ]
+        for reading, alert, words in cases:
+            with self.subTest(datos=reading["datos"]):
+                response, body = self.call("POST", "/analizar", reading)
+                self.assertEqual(response.status, 200)
+                self.assertIs(body["alerta"], alert)
+                self.assertIn(words, body["recomendacion"])
+
+    def test_an_analysis_needs_only_the_soil_moisture_and_uses_the_crop_s_range_when_sent(self):
+        response, alone = self.call("POST", "/analizar", {"datos": {"humedad_suelo": 65}})
+        _, rice = self.call("POST", "/analizar", {"datos": {"humedad_suelo": 65}, "humidity_min": 70, "humidity_max": 95})
+
+        self.assertEqual(response.status, 200)
+        self.assertIs(alone["alerta"], False)
+        self.assertIs(rice["alerta"], True)
+        self.assertIn("(70 %)", rice["recomendacion"])
+
+    def test_a_bad_reading_is_refused_with_a_message_that_names_the_field(self):
+        cases = [
+            (reading_of(humedad_suelo=None), "'humedad_suelo'"),
+            ({"datos": {"temperatura": 24}}, "'humedad_suelo'"),
+            (reading_of(humedad_suelo="mucha"), "'humedad_suelo'"),
+            (reading_of(humedad_suelo=140), "entre 0 y 100"),
+            (reading_of(humedad_aire=140), "'humedad_aire'"),
+            (reading_of(temperatura=True), "'temperatura'"),
+            (reading_of(lluvia=3), "temperatura, humedad_aire, humedad_suelo"),
+            ({"soil_moisture": 31.5}, "'datos'"),
+            ({"datos": [31.5]}, "'datos'"),
+            (dict(DEVICE_READING, humidity_min=50), "deben enviarse juntos"),
+            ([DEVICE_READING], "objeto JSON"),
+        ]
+        for body, expected in cases:
+            with self.subTest(body=body):
+                response, answer = self.call("POST", "/analizar", body)
                 self.assertEqual(response.status, 400)
                 self.assertIn(expected, answer["message"])
 
@@ -183,6 +242,12 @@ class ServiceTokenTests(ServerTests):
                 self.assertEqual(response.getheader("WWW-Authenticate"), "Bearer")
                 self.assertIn("token", body["message"])
                 self.assertNotIn(self.TOKEN, body["message"])
+
+    def test_analyses_are_refused_without_the_token(self):
+        response, body = self.call("POST", "/analizar", DEVICE_READING, headers={"Authorization": ""})
+
+        self.assertEqual(response.status, 401)
+        self.assertNotIn("alerta", body)
 
     def test_the_scheme_is_not_case_sensitive(self):
         response, _ = self.call("POST", "/predict/irrigation", READING,

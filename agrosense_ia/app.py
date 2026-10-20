@@ -9,11 +9,12 @@ from starlette.exceptions import HTTPException
 from . import providers
 from .assistant import Assistant, load_prompt
 from .config import Settings
-from .validation import BadRequest, answer_prediction, chat_request, decode_json, farm_context
+from .validation import BadRequest, answer_analysis, answer_prediction, chat_request, decode_json, farm_context
 
 log = logging.getLogger("agrosense_ia")
 
 PREDICT_PATH = "/predict/irrigation"
+ANALYZE_PATH = "/analizar"
 HEALTH_PATH = "/health"
 CHAT_PATH = "/chat"
 VOICE_PATH = "/voice"
@@ -99,18 +100,27 @@ def create_app(settings: Settings, model: providers.ChatModel | None = None, pro
     @app.api_route("/", methods=["GET", "HEAD"])
     async def root():
         return Json({"service": "AgroSense IA", "status": "UP", "health": HEALTH_PATH,
-                     "predict": f"POST {PREDICT_PATH}", "chat": f"POST {CHAT_PATH}", "voice": f"POST {VOICE_PATH}"})
+                     "predict": f"POST {PREDICT_PATH}", "analyze": f"POST {ANALYZE_PATH}", "chat": f"POST {CHAT_PATH}", "voice": f"POST {VOICE_PATH}"})
 
     @app.api_route(HEALTH_PATH, methods=["GET", "HEAD"])
     async def health():
         return Json({"status": "UP"})
 
+    def unauthorized() -> Json:
+        return _message(401, "Falta el token del servicio o no es válido.", **{"WWW-Authenticate": "Bearer",
+                                                                                "Connection": "close"})
+
     @app.post(PREDICT_PATH)
     async def predict(request: Request):
         if settings.guarded and not authorized(request):
-            return _message(401, "Falta el token del servicio o no es válido.", **{"WWW-Authenticate": "Bearer",
-                                                                                    "Connection": "close"})
+            return unauthorized()
         return Json(answer_prediction(await read_json(request, MAX_BODY_BYTES)))
+
+    @app.post(ANALYZE_PATH)
+    async def analyze(request: Request):
+        if settings.guarded and not authorized(request):
+            return unauthorized()
+        return Json(answer_analysis(await read_json(request, MAX_BODY_BYTES)))
 
     def refused() -> Json:
         return _message(401, "Falta la llave interna del servicio o no es válida.", Connection="close")
