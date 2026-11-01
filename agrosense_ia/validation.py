@@ -8,6 +8,7 @@ MAX_MESSAGE_LENGTH = 1000
 MAX_HISTORY_TURNS = 12
 MAX_TURN_LENGTH = 4000
 MAX_FARM_CONTEXT_LENGTH = 8000
+MAX_HISTORY_POINTS = 48
 
 # The measurements of a reading as the devices name them in "datos".
 READING_MEASUREMENTS = ("temperatura", "humedad_aire", "humedad_suelo")
@@ -58,6 +59,20 @@ def _range(body: dict, low_name: str, high_name: str, low: float, high: float,
     return minimum, maximum
 
 
+def _moisture_history(body: dict) -> list[tuple[float, float]] | None:
+    history = body.get("moisture_history")
+    if history is None:
+        return None
+    if not isinstance(history, list) or len(history) > MAX_HISTORY_POINTS:
+        raise BadRequest(f"El campo 'moisture_history' debe ser una lista de hasta {MAX_HISTORY_POINTS} puntos.")
+    points = []
+    for point in history:
+        if not isinstance(point, dict):
+            raise BadRequest("Cada punto de 'moisture_history' debe tener 'hours_ago' y 'value'.")
+        points.append((_number(point, "hours_ago", 0, 72), _number(point, "value", 0, 100)))
+    return points
+
+
 def answer_prediction(body: object) -> dict:
     if not isinstance(body, dict):
         raise BadRequest("El cuerpo debe ser un objeto JSON.")
@@ -70,6 +85,10 @@ def answer_prediction(body: object) -> dict:
         ph=_number(body, "ph", 0, 14, required=False),
         humidity_range=_range(body, "humidity_min", "humidity_max", 0, 100, DEFAULT_HUMIDITY_RANGE),
         ph_range=_range(body, "ph_min", "ph_max", 0, 14, DEFAULT_PH_RANGE),
+        moisture_history=_moisture_history(body),
+        rain_probability=_number(body, "rain_probability", 0, 100, required=False),
+        rain_mm=_number(body, "rain_mm", 0, 1000, required=False),
+        moisture_gain_per_minute=_number(body, "moisture_gain_per_minute", 0, 100, required=False),
     )
     return {
         "id_crop": crop_id,

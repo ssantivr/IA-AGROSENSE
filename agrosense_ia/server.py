@@ -47,6 +47,9 @@ def main() -> None:
                         format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     logging.getLogger("httpx").setLevel(logging.WARNING)
     settings = from_environment()
+    refusal = settings.refusal(os.environ)
+    if refusal:
+        raise SystemExit(refusal)
     host = os.environ.get("HOST", "0.0.0.0")
     port = int(os.environ.get("PORT", "8000"))
     model = ai_factory.chosen(settings)

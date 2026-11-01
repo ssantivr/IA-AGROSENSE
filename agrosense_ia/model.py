@@ -18,6 +18,19 @@ CLEAR_MARGIN_POINTS = 15.0
 MIN_CONFIDENCE = 0.55
 MAX_CONFIDENCE = 0.95
 
+# What the moisture of the last hours may add. These are rules with fixed thresholds, not a trained model: each one
+# leaves its name in `factors`, and a person can follow why a recommendation came out as it did.
+MIN_TREND_POINTS = 3
+MIN_TREND_HOURS = 1.0
+FALLING_POINTS_PER_HOUR = -1.0
+RISING_POINTS_PER_HOUR = 1.0
+HOURS_TO_ANTICIPATE = 6.0
+RAIN_LIKELY_PERCENT = 70.0
+RAIN_ENOUGH_MM = 5.0
+RAIN_CAN_WAIT_POINTS = 10.0
+STUCK_POINTS = 6
+JUMP_POINTS = 25.0
+
 
 @dataclass(frozen=True)
 class Prediction:
@@ -29,9 +42,35 @@ class Prediction:
     model_used: str = MODEL_NAME
 
 
+def moisture_trend(history: list[tuple[float, float]]) -> float | None:
+    """Points per hour, by least squares over (hours_ago, value); None when the history is too short to say."""
+    if len(history) < MIN_TREND_POINTS:
+        return None
+    times = [-hours_ago for hours_ago, _ in history]
+    if max(times) - min(times) < MIN_TREND_HOURS:
+        return None
+    mean_time = sum(times) / len(times)
+    mean_value = sum(value for _, value in history) / len(history)
+    spread = sum((time - mean_time) ** 2 for time in times)
+    return sum((time - mean_time) * (value - mean_value) for time, (_, value) in zip(times, history)) / spread
+
+
+def moisture_anomalies(history: list[tuple[float, float]]) -> list[str]:
+    values = [value for _, value in sorted(history, key=lambda point: -point[0])]
+    found = []
+    if len(values) >= STUCK_POINTS and max(values) == min(values):
+        found.append("sensor_atascado")
+    if any(abs(after - before) >= JUMP_POINTS for before, after in zip(values, values[1:])):
+        found.append("salto_brusco")
+    return found
+
+
 def predict_irrigation(soil_moisture: float, air_temperature: float | None = None, ph: float | None = None,
                        humidity_range: tuple[float, float] = DEFAULT_HUMIDITY_RANGE,
-                       ph_range: tuple[float, float] = DEFAULT_PH_RANGE) -> Prediction:
+                       ph_range: tuple[float, float] = DEFAULT_PH_RANGE,
+                       moisture_history: list[tuple[float, float]] | None = None,
+                       rain_probability: float | None = None, rain_mm: float | None = None,
+                       moisture_gain_per_minute: float | None = None) -> Prediction:
     humidity_min, humidity_max = humidity_range
     ph_min, ph_max = ph_range
     if humidity_min >= humidity_max or ph_min >= ph_max:
@@ -45,6 +84,9 @@ def predict_irrigation(soil_moisture: float, air_temperature: float | None = Non
     if soil_moisture < humidity_min:
         missing = target - soil_moisture
         minutes = MIN_MINUTES + missing * MINUTES_PER_POINT * (1.25 if hot else 0.85 if cold else 1.0)
+        if moisture_gain_per_minute:
+            minutes = missing / moisture_gain_per_minute
+            factors.append("duracion_segun_riegos_anteriores")
         duration = int(min(MAX_MINUTES, max(MIN_MINUTES, round(minutes))))
         irrigate = True
         margin = humidity_min - soil_moisture
@@ -75,6 +117,33 @@ def predict_irrigation(soil_moisture: float, air_temperature: float | None = Non
         factors.append("humedad_adecuada")
 
     notes = []
+    history = moisture_history or []
+    trend = moisture_trend(history)
+    if trend is not None and trend <= FALLING_POINTS_PER_HOUR:
+        factors.append("tendencia_a_la_baja")
+        hours_left = (soil_moisture - humidity_min) / -trend
+        if not irrigate and soil_moisture <= humidity_max and hours_left <= HOURS_TO_ANTICIPATE:
+            irrigate = True
+            duration = PREVENTIVE_MINUTES
+            advice = (f"Aplica un riego corto de {duration} minutos: la humedad ({_number(soil_moisture)} %) baja "
+                      f"{_number(-trend)} puntos por hora y llegaría al mínimo en unas {_number(hours_left)} horas.")
+    elif trend is not None and trend >= RISING_POINTS_PER_HOUR:
+        factors.append("tendencia_al_alza")
+        if irrigate:
+            notes.append(f"La humedad ya sube {_number(trend)} puntos por hora: comprueba si acaba de llover o regar.")
+
+    rain_is_likely = (rain_probability is not None and rain_probability >= RAIN_LIKELY_PERCENT) or \
+                     (rain_mm is not None and rain_mm >= RAIN_ENOUGH_MM)
+    if rain_is_likely:
+        factors.append("lluvia_prevista")
+        if irrigate and soil_moisture >= humidity_min - RAIN_CAN_WAIT_POINTS:
+            irrigate = False
+            duration = 0
+            advice = (f"Espera antes de regar: hay lluvia prevista y la humedad del suelo "
+                      f"({_number(soil_moisture)} %) puede aguantar hasta entonces.")
+        elif irrigate:
+            notes.append("Hay lluvia prevista, pero el suelo está demasiado seco para esperarla.")
+
     if hot:
         factors.append("temperatura_alta")
         if irrigate:
@@ -96,6 +165,11 @@ def predict_irrigation(soil_moisture: float, air_temperature: float | None = Non
                      "acidificante.")
 
     confidence = MIN_CONFIDENCE + (MAX_CONFIDENCE - MIN_CONFIDENCE) * min(1.0, margin / CLEAR_MARGIN_POINTS)
+    anomalies = moisture_anomalies(history)
+    if anomalies:
+        factors += anomalies
+        confidence = MIN_CONFIDENCE
+        notes.append("Las lecturas recientes de humedad parecen anómalas: revisa el sensor antes de fiarte de esto.")
     return Prediction(irrigate=irrigate, duration_minutes=duration,
                       recommendation=" ".join([advice, *notes]), confidence=round(confidence, 4),
                       factors=factors)

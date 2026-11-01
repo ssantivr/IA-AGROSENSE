@@ -34,6 +34,14 @@ class Settings:
     def guarded(self) -> bool:
         return bool(self.internal_key or self.service_token)
 
+    def refusal(self, environ: dict) -> str | None:
+        """Why the service must not start: reachable by anyone and open to anyone, without having asked for it."""
+        host = environ.get("HOST", "0.0.0.0")
+        if self.guarded or host in ("127.0.0.1", "localhost") or environ.get("AI_ALLOW_OPEN", "") == "true":
+            return None
+        return ("Sin INTERNAL_API_KEY ni AI_SERVICE_TOKEN cualquiera podría usar este servicio. Define uno, o "
+                "AI_ALLOW_OPEN=true si de verdad debe quedar abierto.")
+
 
 def _models(value: str) -> tuple[str, ...]:
     return tuple(name.strip() for name in value.split(",") if name.strip())
