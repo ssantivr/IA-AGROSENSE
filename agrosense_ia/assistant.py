@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from .providers import ASSISTANT, CANNOT_LISTEN, USER, AssistantError, ChatModel, Gemini, Said
+from .providers import ASSISTANT, CANNOT_LISTEN, USER, AssistantError, ChatModel, Said
 
 PROMPT_FILE = Path(__file__).resolve().parent.parent / "prompts" / "system-es.txt"
 
@@ -56,7 +56,8 @@ class Assistant:
             raise AssistantError(503, NOT_CONFIGURED)
         if not self.model.listens():
             raise AssistantError(503, CANNOT_LISTEN)
-        if isinstance(self.model, Gemini):
-            return self.model.listen_and_answer(self.instructions(farm_context), audio, mime_type)
-        heard = self.model.transcribe(audio, mime_type)[:1000]
-        return self.chat(heard, [], farm_context), heard
+        heard = self.model.transcriber.hear(self.instructions(farm_context), audio, mime_type)
+        if heard.reply is not None:
+            return heard.reply, heard.transcript
+        said = heard.transcript[:1000]
+        return self.chat(said, [], farm_context), said

@@ -56,35 +56,41 @@ def _send(call, model: str) -> dict:
     return answer
 
 
+@dataclass(frozen=True)
+class Heard:
+    """What a recording said. A provider that answers in the same call also brings the reply."""
+    transcript: str | None
+    reply: str | None = None
+
+
+class Transcriber:
+    def hear(self, instructions: str, audio: bytes, mime_type: str) -> Heard:
+        raise NotImplementedError
+
+
 class ChatModel:
     name = "model"
+    transcriber: Transcriber | None = None
 
     def chat(self, instructions: str, conversation: list[Said]) -> str:
         raise NotImplementedError
 
     def listens(self) -> bool:
-        return False
-
-    def transcribe(self, audio: bytes, mime_type: str) -> str:
-        raise AssistantError(503, CANNOT_LISTEN)
+        return self.transcriber is not None
 
 
-class OpenAiCompatible(ChatModel):
+class OpenAiCompatAdapter(ChatModel):
     name = "openai-compatible"
 
-    def __init__(self, api_key: str, base_url: str, models: tuple[str, ...], transcription_model: str,
-                 timeout_s: float, max_output_tokens: int):
+    def __init__(self, api_key: str, base_url: str, models: tuple[str, ...], timeout_s: float,
+                 max_output_tokens: int):
         if not models:
             raise ValueError("AI_CHAT_MODEL must name at least one model")
         self.base_url = base_url.rstrip("/")
         self.headers = {"Authorization": f"Bearer {api_key}"}
         self.models = models
-        self.transcription_model = transcription_model
         self.timeout_s = timeout_s
         self.max_output_tokens = max_output_tokens
-
-    def listens(self) -> bool:
-        return bool(self.transcription_model)
 
     def chat(self, instructions: str, conversation: list[Said]) -> str:
         messages = [{"role": "system", "content": instructions}]
@@ -112,20 +118,26 @@ class OpenAiCompatible(ChatModel):
             raise AssistantError(422, REFUSED)
         raise AssistantError(502, EMPTY)
 
-    def transcribe(self, audio: bytes, mime_type: str) -> str:
-        if not self.listens():
-            return super().transcribe(audio, mime_type)
+
+class OpenAiCompatTranscriber(Transcriber):
+    def __init__(self, api_key: str, base_url: str, model: str, timeout_s: float):
+        self.url = f"{base_url.rstrip('/')}/audio/transcriptions"
+        self.headers = {"Authorization": f"Bearer {api_key}"}
+        self.model = model
+        self.timeout_s = timeout_s
+
+    def hear(self, instructions: str, audio: bytes, mime_type: str) -> Heard:
         files = {"file": (f"voice.{EXTENSIONS.get(mime_type, 'webm')}", audio, mime_type)}
-        data = {"model": self.transcription_model, "language": "es", "response_format": "json"}
-        answer = _send(lambda: httpx.post(f"{self.base_url}/audio/transcriptions", files=files, data=data,
-                                          headers=self.headers, timeout=self.timeout_s), self.transcription_model)
+        data = {"model": self.model, "language": "es", "response_format": "json"}
+        answer = _send(lambda: httpx.post(self.url, files=files, data=data, headers=self.headers,
+                                          timeout=self.timeout_s), self.model)
         heard = (answer.get("text") or "").strip()
         if not heard:
             raise AssistantError(422, "No se entendió el mensaje de voz. Inténtalo de nuevo o escribe tu pregunta.")
-        return heard
+        return Heard(heard)
 
 
-class Anthropic(ChatModel):
+class AnthropicAdapter(ChatModel):
     name = "anthropic"
 
     def __init__(self, api_key: str, base_url: str, model: str, effort: str, timeout_s: float,
@@ -155,7 +167,7 @@ class Anthropic(ChatModel):
         return reply
 
 
-class Gemini(ChatModel):
+class GeminiAdapter(ChatModel):
     name = "gemini"
 
     VOICE_INSTRUCTION = "Transcribe el audio en español y responde a lo que pregunta."
@@ -166,9 +178,6 @@ class Gemini(ChatModel):
         self.model = model
         self.timeout_s = timeout_s
         self.max_output_tokens = max_output_tokens
-
-    def listens(self) -> bool:
-        return True
 
     def chat(self, instructions: str, conversation: list[Said]) -> str:
         contents = [{"role": "user" if turn.role == USER else "model", "parts": [{"text": turn.text}]}
@@ -213,15 +222,12 @@ class Gemini(ChatModel):
         raise AssistantError(502, EMPTY)
 
 
-def chosen(settings) -> ChatModel | None:
-    timeout_s = settings.timeout_ms / 1000
-    if settings.chat_api_key:
-        return OpenAiCompatible(settings.chat_api_key, settings.chat_base_url, settings.chat_models,
-                                settings.transcription_model, timeout_s, settings.max_output_tokens)
-    if settings.anthropic_api_key:
-        return Anthropic(settings.anthropic_api_key, settings.anthropic_base_url, settings.anthropic_model,
-                         settings.anthropic_effort, timeout_s, settings.max_output_tokens)
-    if settings.gemini_api_key:
-        return Gemini(settings.gemini_api_key, settings.gemini_base_url, settings.gemini_model, timeout_s,
-                      settings.max_output_tokens)
-    return None
+class GeminiTranscriber(Transcriber):
+    """Gemini hears the recording and answers it in one call, with the farm's instructions."""
+
+    def __init__(self, chat: GeminiAdapter):
+        self.chat = chat
+
+    def hear(self, instructions: str, audio: bytes, mime_type: str) -> Heard:
+        reply, heard = self.chat.listen_and_answer(instructions, audio, mime_type)
+        return Heard(heard, reply)

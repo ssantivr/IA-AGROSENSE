@@ -6,7 +6,7 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException
 
-from . import providers
+from . import ai_factory, providers
 from .assistant import Assistant, load_prompt
 from .config import Settings
 from .validation import BadRequest, answer_analysis, answer_prediction, chat_request, decode_json, farm_context
@@ -42,7 +42,7 @@ def _same(sent: str, expected: str) -> bool:
 
 
 def create_app(settings: Settings, model: providers.ChatModel | None = None, prompt: str | None = None) -> FastAPI:
-    assistant = Assistant(model if model is not None else providers.chosen(settings),
+    assistant = Assistant(model if model is not None else ai_factory.chosen(settings),
                           prompt if prompt is not None else load_prompt())
     app = FastAPI(title="AgroSense IA", docs_url=None, redoc_url=None, openapi_url=None)
     app.state.assistant = assistant

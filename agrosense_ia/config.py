@@ -27,6 +27,8 @@ class Settings:
     gemini_model: str = DEFAULT_GEMINI_MODEL
     timeout_ms: int = 20000
     max_output_tokens: int = 2048
+    provider_requests_per_minute: int = 0
+    reply_cache_seconds: int = 0
 
     @property
     def guarded(self) -> bool:
@@ -65,4 +67,6 @@ def from_environment(environ: dict | None = None) -> Settings:
         gemini_model=text("GEMINI_MODEL", DEFAULT_GEMINI_MODEL),
         timeout_ms=_int(env, "AI_TIMEOUT_MS", 20000),
         max_output_tokens=_int(env, "AI_MAX_OUTPUT_TOKENS", 2048),
+        provider_requests_per_minute=_int(env, "AI_PROVIDER_REQUESTS_PER_MINUTE", 60),
+        reply_cache_seconds=_int(env, "AI_REPLY_CACHE_SECONDS", 60),
     )

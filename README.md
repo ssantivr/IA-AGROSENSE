@@ -207,6 +207,8 @@ python -m venv .venv
 | `GEMINI_API_KEY`, `GEMINI_MODEL`, `GEMINI_BASE_URL` | Gemini. Por defecto `gemini-flash-latest` |
 | `AI_TIMEOUT_MS` | Espera máxima a un proveedor (20000) |
 | `AI_MAX_OUTPUT_TOKENS` | Longitud máxima de la respuesta (2048) |
+| `AI_PROVIDER_REQUESTS_PER_MINUTE` | Llamadas por minuto al proveedor desde todo el servicio (60; 0 lo apaga). Al superarlas responde 429 |
+| `AI_REPLY_CACHE_SECONDS` | Segundos que una pregunta idéntica, con los mismos datos de finca, reutiliza su respuesta (60; 0 lo apaga) |
 
 Las llaves llegan solo por el entorno; no se escriben en ningún archivo.
 
