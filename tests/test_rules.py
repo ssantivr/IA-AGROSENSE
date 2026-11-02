@@ -1,9 +1,12 @@
 """The rules that use the moisture of the last hours, the rain and past irrigations. Plain unittest and no FastAPI."""
 import unittest
+from unittest import mock
 
+from agrosense_ia.assistant import Assistant
 from agrosense_ia.config import Settings
 from agrosense_ia.model import predict_irrigation
-from agrosense_ia.validation import BadRequest, answer_prediction
+from agrosense_ia.providers import AnthropicAdapter, AssistantError, GeminiAdapter, OpenAiCompatAdapter
+from agrosense_ia.validation import BadRequest, answer_prediction, decode_json
 
 STEADY = [(5.0, 60.0), (3.0, 60.5), (1.0, 60.0), (0.0, 60.5)]
 FALLING = [(5.0, 62.0), (3.0, 56.0), (1.0, 50.0), (0.0, 47.0)]
@@ -110,3 +113,30 @@ class StartupTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class OddInputTests(unittest.TestCase):
+    def test_a_number_too_big_for_a_float_is_refused_like_any_other_out_of_range(self):
+        with self.assertRaises(BadRequest):
+            answer_prediction({"soil_moisture": 10 ** 400})
+
+    def test_json_nested_beyond_reason_is_a_bad_request(self):
+        with self.assertRaises(BadRequest):
+            decode_json(b"[" * 100000)
+
+
+class ProviderOddAnswerTests(unittest.TestCase):
+    def test_a_provider_answering_nonsense_is_a_failed_answer(self):
+        adapters = (OpenAiCompatAdapter("k", "http://x", ("m",), 1, 10), GeminiAdapter("k", "http://x", "m", 1, 10),
+                    AnthropicAdapter("k", "http://x", "m", "", 1, 10))
+        bodies = ({"choices": {"a": 1}}, {"choices": [{"message": "hola"}]},
+                  {"choices": [{"message": {"content": ["x"]}}]}, {"candidates": {"a": 1}}, {"candidates": ["x"]},
+                  {"content": 5})
+        for adapter in adapters:
+            for body in bodies:
+                answer = mock.Mock(status_code=200)
+                answer.json.return_value = body
+                with self.subTest(adapter=adapter.name, body=body), mock.patch("httpx.post", return_value=answer):
+                    with self.assertRaises(AssistantError) as raised:
+                        Assistant(adapter, "prompt").chat("hola", [], None)
+                    self.assertEqual(raised.exception.status, 502)

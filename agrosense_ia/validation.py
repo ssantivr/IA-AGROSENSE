@@ -25,7 +25,7 @@ class BadRequest(Exception):
 def decode_json(raw: bytes) -> object:
     try:
         return json.loads(raw.decode("utf-8"), parse_constant=_reject_constant)
-    except (ValueError, UnicodeDecodeError):
+    except (ValueError, UnicodeDecodeError, RecursionError):
         raise BadRequest("El cuerpo no es JSON válido.") from None
 
 
@@ -39,7 +39,9 @@ def _number(body: dict, name: str, low: float, high: float, required: bool = Tru
         if required:
             raise BadRequest(f"Falta el campo '{name}'.")
         return None
-    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+    # Only floats: math.isfinite() cannot take an integer too big for a float, and JSON has those.
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or \
+            (isinstance(value, float) and not math.isfinite(value)):
         raise BadRequest(f"El campo '{name}' debe ser un número.")
     if not low <= value <= high:
         raise BadRequest(f"El campo '{name}' debe estar entre {low:g} y {high:g}.")

@@ -1,6 +1,9 @@
+import logging
 from pathlib import Path
 
-from .providers import ASSISTANT, CANNOT_LISTEN, USER, AssistantError, ChatModel, Said
+from .providers import ASSISTANT, CANNOT_LISTEN, EMPTY, USER, AssistantError, ChatModel, Said
+
+log = logging.getLogger("agrosense_ia.assistant")
 
 PROMPT_FILE = Path(__file__).resolve().parent.parent / "prompts" / "system-es.txt"
 
@@ -8,6 +11,15 @@ MAX_HISTORY_SENT = 8
 
 NO_FARM = "No hay datos de la finca disponibles en este momento."
 NOT_CONFIGURED = "El asistente de IA no está configurado todavía."
+
+
+def _answer_of(call, *arguments):
+    """The adapters read what a provider should send; what it sends instead is a failed answer, not a crash."""
+    try:
+        return call(*arguments)
+    except (KeyError, IndexError, TypeError, AttributeError) as odd:
+        log.warning("The AI provider answered something unexpected: %s", type(odd).__name__)
+        raise AssistantError(502, EMPTY) from None
 
 
 def load_prompt(path: Path = PROMPT_FILE) -> str:
@@ -49,14 +61,14 @@ class Assistant:
     def chat(self, question: str, history: list[Said], farm_context: str | None) -> str:
         if self.model is None:
             raise AssistantError(503, NOT_CONFIGURED)
-        return self.model.chat(self.instructions(farm_context), conversation(history, question.strip()))
+        return _answer_of(self.model.chat, self.instructions(farm_context), conversation(history, question.strip()))
 
     def voice(self, audio: bytes, mime_type: str, farm_context: str | None) -> tuple[str, str | None]:
         if self.model is None:
             raise AssistantError(503, NOT_CONFIGURED)
         if not self.model.listens():
             raise AssistantError(503, CANNOT_LISTEN)
-        heard = self.model.transcriber.hear(self.instructions(farm_context), audio, mime_type)
+        heard = _answer_of(self.model.transcriber.hear, self.instructions(farm_context), audio, mime_type)
         if heard.reply is not None:
             return heard.reply, heard.transcript
         said = heard.transcript[:1000]
