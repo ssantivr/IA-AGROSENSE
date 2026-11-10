@@ -93,7 +93,7 @@ Valores de `factors`: `humedad_baja`, `humedad_alta`, `humedad_adecuada`, `riego
 
 ### `POST /analizar`
 
-Las mismas reglas, aplicadas a una lectura en la forma en que la envía la Raspberry, con una respuesta
+Las mismas reglas, aplicadas a una lectura en la forma alternativa `{deviceId, datos}` del webhook, con una respuesta
 reducida a si hay que actuar y qué hacer. Pide la misma credencial que `/predict/irrigation`.
 
 ```json
