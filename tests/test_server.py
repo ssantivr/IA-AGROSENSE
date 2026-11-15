@@ -6,7 +6,7 @@ import unittest
 from agrosense_ia.server import MAX_BODY_BYTES, create_server
 
 READING = {"id_crop": 7, "soil_moisture": 31.5, "air_temperature": 24, "ph": 6.4}
-DEVICE_READING = {"deviceId": "RPI-DEMO-01", "timestamp": "2026-10-20T10:00:00Z",
+DEVICE_READING = {"deviceId": "ESP32-PLANTICAS", "timestamp": "2026-10-20T10:00:00Z",
                   "datos": {"temperatura": 24, "humedad_aire": 60, "humedad_suelo": 31.5}}
 
 

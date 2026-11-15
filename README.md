@@ -97,7 +97,7 @@ Las mismas reglas, aplicadas a una lectura en la forma alternativa `{deviceId, d
 reducida a si hay que actuar y qué hacer. Pide la misma credencial que `/predict/irrigation`.
 
 ```json
-{"deviceId": "RPI-DEMO-01", "timestamp": "2026-10-20T10:00:00Z",
+{"deviceId": "ESP32-PLANTICAS", "timestamp": "2026-10-20T10:00:00Z",
  "datos": {"temperatura": 24.5, "humedad_aire": 60, "humedad_suelo": 28}}
 ```
 
